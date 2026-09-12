@@ -16,11 +16,15 @@ const notoBengali = Noto_Sans_Bengali({
 });
 
 import GlobalEffects from './components/GlobalEffects';
+import { Providers } from './providers';
+
+export const viewport = {
+  themeColor: '#030f26',
+};
 
 export const metadata = {
   title: 'Sheikh Online Service — Fast, Reliable Internet',
   description: 'Sheikh Online Service — fast, reliable internet for a better digital life.',
-  themeColor: '#030f26',
   openGraph: {
     title: 'Sheikh Online Service — Fast, Reliable Internet',
     description: 'Reliable, high-speed connectivity designed for the way you live, work and connect.',
@@ -32,8 +36,10 @@ export default function RootLayout({ children }) {
   return (
     <html lang="en">
       <body className={`${manrope.variable} ${notoBengali.variable}`}>
-        <GlobalEffects />
-        {children}
+        <Providers>
+          <GlobalEffects />
+          {children}
+        </Providers>
       </body>
     </html>
   );

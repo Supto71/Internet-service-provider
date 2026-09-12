@@ -52,9 +52,13 @@ export default function Home() {
   const [form,       setForm]       = useState({ name:'', phone:'', email:'', message:'' });
   const [fStatus,    setFStatus]    = useState('');
 
-  /* Canvas hero animation - Scroll tied */
   useEffect(() => {
     setMounted(true);
+  }, []);
+
+  /* Canvas hero animation - Scroll tied */
+  useEffect(() => {
+    if (!mounted) return;
     const canvas = canvasRef.current;
     const fiberCanvas = document.getElementById('fiberCanvas');
     if (!canvas || !fiberCanvas) return;
@@ -75,12 +79,16 @@ export default function Home() {
 
     const draw = (index) => {
       const img = images.get(index);
-      if (!img || !img.complete) return;
+      if (!img || !img.complete || img.naturalWidth === 0) {
+        console.log('[Hero] Skipping draw for frame', index, 'complete:', img?.complete, 'width:', img?.naturalWidth);
+        return;
+      }
       const cw = canvas.width, ch = canvas.height, iw = img.naturalWidth, ih = img.naturalHeight;
       const scale = Math.max(cw / iw, ch / ih), w = iw * scale, h = ih * scale;
       ctx.fillStyle = '#030f26'; ctx.fillRect(0,0,cw,ch);
       ctx.drawImage(img, (cw-w)/2, (ch-h)/2, w, h);
       painted = index;
+      console.log('[Hero] Painted frame', index);
     };
 
     const requestDraw = () => {
@@ -96,7 +104,8 @@ export default function Home() {
       if (images.has(i)) return;
       const img = new window.Image();
       img.decoding = 'async';
-      img.onload = () => { requestDraw(); };
+      img.onload = () => { console.log('[Hero] Loaded frame', i); requestDraw(); };
+      img.onerror = () => { console.error('[Hero] Failed to load frame', i); };
       img.src = framePath(i);
       images.set(i, img);
       if (img.complete) {
@@ -233,7 +242,7 @@ export default function Home() {
       window.removeEventListener('resize', resize);
       window.removeEventListener('scroll', updateScroll);
     };
-  }, []);
+  }, [mounted]);
 
   /* Section visibility for animations */
   useEffect(() => {

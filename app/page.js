@@ -62,7 +62,7 @@ export default function Home() {
     const fCtx = fiberCanvas.getContext('2d');
     const N = 240;
     const images = new Map();
-    let wanted = 0, painted = -1, raf = 0;
+    let wanted = 0, painted = -1, raf = 0, fiberRaf = 0;
     
     // Fiber effect state
     let fibers = [];
@@ -106,6 +106,19 @@ export default function Home() {
     };
     idle();
 
+    // Initialize fibers
+    const initFibers = () => {
+      fibers = Array.from({ length: 60 }, () => ({
+        x: Math.random() * fWidth,
+        y: Math.random() * fHeight,
+        length: 50 + Math.random() * 150,
+        speed: 1 + Math.random() * 3,
+        thickness: 0.5 + Math.random() * 1.5,
+        alpha: Math.random(),
+        curve: (Math.random() - 0.5) * 50
+      }));
+    };
+
     const resize = () => { 
       const dpr = Math.min(window.devicePixelRatio || 1, 2);
       canvas.width = window.innerWidth * dpr; 
@@ -123,19 +136,6 @@ export default function Home() {
     window.addEventListener('resize', resize, { passive: true });
     resize();
 
-    // Initialize fibers
-    const initFibers = () => {
-      fibers = Array.from({ length: 60 }, () => ({
-        x: Math.random() * fWidth,
-        y: Math.random() * fHeight,
-        length: 50 + Math.random() * 150,
-        speed: 1 + Math.random() * 3,
-        thickness: 0.5 + Math.random() * 1.5,
-        alpha: Math.random(),
-        curve: (Math.random() - 0.5) * 50
-      }));
-    };
-    
     // Fiber animation loop
     const animateFibers = () => {
       fCtx.clearRect(0, 0, fWidth, fHeight);
@@ -167,7 +167,7 @@ export default function Home() {
         fCtx.lineCap = 'round';
         fCtx.stroke();
       });
-      requestAnimationFrame(animateFibers);
+      fiberRaf = requestAnimationFrame(animateFibers);
     };
     initFibers();
     animateFibers();
@@ -220,6 +220,8 @@ export default function Home() {
     updateScroll();
 
     return () => {
+      cancelAnimationFrame(raf);
+      cancelAnimationFrame(fiberRaf);
       window.removeEventListener('resize', resize);
       window.removeEventListener('scroll', updateScroll);
     };

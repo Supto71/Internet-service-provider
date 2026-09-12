@@ -85,16 +85,23 @@ export default function Home() {
 
     const requestDraw = () => {
       cancelAnimationFrame(raf);
-      raf = requestAnimationFrame(() => { if (wanted !== painted) draw(wanted); });
+      raf = requestAnimationFrame(() => { 
+        if (wanted !== painted) {
+          draw(wanted); 
+        }
+      });
     };
 
     const loadFrame = (i) => {
       if (images.has(i)) return;
       const img = new window.Image();
       img.decoding = 'async';
-      img.onload = () => { if (i === wanted) requestDraw(); };
+      img.onload = () => { requestDraw(); };
       img.src = framePath(i);
       images.set(i, img);
+      if (img.complete) {
+        requestDraw();
+      }
     };
 
     const important = [0,1,2,3,4,5,6,7,8,10,12,16,20,24,30,40,55,70,90,115,145,175,205,239];
@@ -183,6 +190,7 @@ export default function Home() {
       lastProgress = progress;
       
       wanted = Math.round(progress * (N - 1));
+      loadFrame(wanted); // Ensure the frame we want is actively loading
       requestDraw();
 
       // Sequential Information Blocks Logic

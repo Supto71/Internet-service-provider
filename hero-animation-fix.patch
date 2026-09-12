@@ -1,0 +1,42 @@
+diff --git a/app/page.js b/app/page.js
+--- a/app/page.js
++++ b/app/page.js
+@@
+-    let wanted = 0, painted = -1, raf = 0;
++    let wanted = 0, painted = -1, raf = 0, fiberRaf = 0;
+@@
++    const initFibers = () => {
++      fibers = Array.from({ length: 60 }, () => ({
++        x: Math.random() * fWidth,
++        y: Math.random() * fHeight,
++        length: 50 + Math.random() * 150,
++        speed: 1 + Math.random() * 3,
++        thickness: 0.5 + Math.random() * 1.5,
++        alpha: Math.random(),
++        curve: (Math.random() - 0.5) * 50
++      }));
++    };
++
+     const resize = () => {
+@@
+-    // Initialize fibers
+-    const initFibers = () => {
+-      fibers = Array.from({ length: 60 }, () => ({
+-        x: Math.random() * fWidth,
+-        y: Math.random() * fHeight,
+-        length: 50 + Math.random() * 150,
+-        speed: 1 + Math.random() * 3,
+-        thickness: 0.5 + Math.random() * 1.5,
+-        alpha: Math.random(),
+-        curve: (Math.random() - 0.5) * 50
+-      }));
+-    };
+-
+@@
+-      requestAnimationFrame(animateFibers);
++      fiberRaf = requestAnimationFrame(animateFibers);
+@@
+     return () => {
++      cancelAnimationFrame(raf);
++      cancelAnimationFrame(fiberRaf);
+       window.removeEventListener('resize', resize);

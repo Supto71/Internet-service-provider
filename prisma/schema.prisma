@@ -1,0 +1,76 @@
+// Prisma schema for Sheikh Online Service
+// Database: MySQL (via PlanetScale / Railway / local MySQL)
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+// ── Contact form submissions ──────────────────────────────
+model Contact {
+  id        Int      @id @default(autoincrement())
+  name      String
+  phone     String
+  email     String?
+  message   String   @db.Text
+  status    String   @default("new") // new | read | replied
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("contacts")
+}
+
+// ── Connection orders ─────────────────────────────────────
+model Order {
+  id             Int      @id @default(autoincrement())
+  plan           String
+  speed          Int?
+  price          Int?
+  connectionType String   @default("New connection")
+  fullName       String
+  phone          String
+  email          String?
+  address        String   @db.Text
+  status         String   @default("pending") // pending | reviewing | active | cancelled
+  notes          String?  @db.Text
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@map("orders")
+}
+
+// ── Customer accounts ─────────────────────────────────────
+model User {
+  id         Int      @id @default(autoincrement())
+  name       String
+  phone      String   @unique
+  email      String?
+  password   String
+  role       String   @default("customer") // customer | admin
+  plan       String?
+  planSpeed  Int?
+  planPrice  Int?
+  address    String?  @db.Text
+  isActive   Boolean  @default(false)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@map("users")
+}
+
+// ── Offers / Special deals ────────────────────────────────
+model Offer {
+  id          Int      @id @default(autoincrement())
+  title       String
+  description String   @db.Text
+  discount    Int?     // percentage
+  validUntil  DateTime?
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+
+  @@map("offers")
+}

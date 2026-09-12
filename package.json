@@ -1,0 +1,30 @@
+{
+  "name": "sheikh-online-service",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint",
+    "db:push": "prisma db push",
+    "db:studio": "prisma studio",
+    "db:generate": "prisma generate",
+    "db:migrate": "prisma migrate dev"
+  },
+  "dependencies": {
+    "next": "^15.0.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "@prisma/client": "^5.0.0",
+    "next-auth": "^4.24.0",
+    "bcryptjs": "^2.4.3",
+    "nodemailer": "^6.9.0",
+    "swiper": "^11.0.5"
+  },
+  "devDependencies": {
+    "prisma": "^5.0.0",
+    "eslint": "^8.0.0",
+    "eslint-config-next": "^15.0.0"
+  }
+}

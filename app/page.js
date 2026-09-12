@@ -79,38 +79,22 @@ export default function Home() {
 
     const draw = (index) => {
       const img = images.get(index);
-      if (!img || !img.complete || img.naturalWidth === 0) {
-        console.log('[Hero] Skipping draw for frame', index, 'complete:', img?.complete, 'width:', img?.naturalWidth);
-        return;
-      }
+      if (!img || !img.complete || img.naturalWidth === 0) return;
       const cw = canvas.width, ch = canvas.height, iw = img.naturalWidth, ih = img.naturalHeight;
       const scale = Math.max(cw / iw, ch / ih), w = iw * scale, h = ih * scale;
       ctx.fillStyle = '#030f26'; ctx.fillRect(0,0,cw,ch);
       ctx.drawImage(img, (cw-w)/2, (ch-h)/2, w, h);
       painted = index;
-      console.log('[Hero] Painted frame', index);
     };
 
-    const requestDraw = () => {
-      cancelAnimationFrame(raf);
-      raf = requestAnimationFrame(() => { 
-        if (wanted !== painted) {
-          draw(wanted); 
-        }
-      });
-    };
+    const requestDraw = () => { /* No-op, handled by render loop */ };
 
     const loadFrame = (i) => {
       if (images.has(i)) return;
       const img = new window.Image();
       img.decoding = 'async';
-      img.onload = () => { console.log('[Hero] Loaded frame', i); requestDraw(); };
-      img.onerror = () => { console.error('[Hero] Failed to load frame', i); };
       img.src = framePath(i);
       images.set(i, img);
-      if (img.complete) {
-        requestDraw();
-      }
     };
 
     const important = [0,1,2,3,4,5,6,7,8,10,12,16,20,24,30,40,55,70,90,115,145,175,205,239];
@@ -124,16 +108,20 @@ export default function Home() {
 
     // Initialize fibers
     const initFibers = () => {
-      fibers = Array.from({ length: 60 }, () => ({
+      const isMobile = window.innerWidth < 768;
+      const numFibers = isMobile ? 15 : 50; // Reduce fibers on mobile for performance
+      fibers = Array.from({ length: numFibers }, () => ({
         x: Math.random() * fWidth,
         y: Math.random() * fHeight,
         length: 50 + Math.random() * 150,
         speed: 1 + Math.random() * 3,
         thickness: 0.5 + Math.random() * 1.5,
-        alpha: Math.random(),
+        alpha: 0.2 + Math.random() * 0.5, // slightly boost alpha since we remove gradient
         curve: (Math.random() - 0.5) * 50
       }));
     };
+
+    let currentFloatFrame = 0;
 
     const resize = () => { 
       const dpr = Math.min(window.devicePixelRatio || 1, 2);
@@ -147,21 +135,62 @@ export default function Home() {
       fCtx.scale(dpr, dpr);
       
       initFibers();
-      draw(wanted); 
+      painted = -1; // force redraw
     };
     window.addEventListener('resize', resize, { passive: true });
     resize();
 
-    // Fiber animation loop
-    const animateFibers = () => {
+    // Unified render loop
+    const renderLoop = () => {
+      // 0. Performance Optimization: Skip rendering if hero is not visible
+      const hero = document.getElementById('home');
+      if (hero && hero.getBoundingClientRect().bottom < 0) {
+        raf = requestAnimationFrame(renderLoop);
+        return;
+      }
+
+      // 1. Smooth Frame Interpolation (Lerp)
+      currentFloatFrame += (wanted - currentFloatFrame) * 0.08; // Lower = smoother, Higher = faster
+      const frameToDraw = Math.round(currentFloatFrame);
+      if (frameToDraw !== painted && frameToDraw >= 0 && frameToDraw < N) {
+        draw(frameToDraw);
+      }
+
+      // 2. Smooth Text Animation
+      const smoothedProgress = currentFloatFrame / (N - 1);
+      const blocks = 3;
+      for (let j = 0; j < blocks; j++) {
+        const copy = document.getElementById(`hero-copy-${j}`);
+        if (!copy) continue;
+        
+        const start = j / blocks;
+        const end = (j + 1) / blocks;
+        const center = (start + end) / 2;
+        
+        let dist = 0;
+        if (j === 0 && smoothedProgress < center) {
+          dist = 0;
+        } else if (j === blocks - 1 && smoothedProgress > center) {
+          dist = 0;
+        } else {
+          dist = Math.abs(smoothedProgress - center) / (0.4 / blocks); // fade range
+        }
+        
+        const opacity = Math.max(0, 1 - dist);
+        const move = (smoothedProgress - center) * 150;
+        
+        copy.style.opacity = opacity;
+        // Using marginTop instead of transform to avoid !important CSS conflicts on mobile
+        copy.style.marginTop = `${-move}px`;
+        copy.style.pointerEvents = opacity > 0.5 ? 'auto' : 'none';
+      }
+
+      // 3. Fibers Animation
       fCtx.clearRect(0, 0, fWidth, fHeight);
-      
-      // Decay velocity
       scrollVelocity *= 0.92;
       const baseSpeed = 1 + scrollVelocity * 15;
       
       fibers.forEach(f => {
-        // Move fiber right-to-left or along perspective
         f.x -= f.speed * baseSpeed;
         if (f.x < -f.length) {
           f.x = fWidth + f.length;
@@ -173,20 +202,17 @@ export default function Home() {
         fCtx.moveTo(f.x, f.y);
         fCtx.quadraticCurveTo(f.x + f.length / 2, f.y + f.curve, f.x + f.length, f.y);
         
-        const grad = fCtx.createLinearGradient(f.x, f.y, f.x + f.length, f.y);
-        grad.addColorStop(0, `rgba(109, 229, 255, 0)`);
-        grad.addColorStop(0.8, `rgba(109, 229, 255, ${f.alpha})`);
-        grad.addColorStop(1, `rgba(255, 255, 255, ${f.alpha + 0.2})`);
-        
-        fCtx.strokeStyle = grad;
+        // Performance fix: Removed createLinearGradient (very expensive on mobile CPUs)
+        // using a solid semi-transparent stroke instead
+        fCtx.strokeStyle = `rgba(109, 229, 255, ${f.alpha})`;
         fCtx.lineWidth = f.thickness;
         fCtx.lineCap = 'round';
         fCtx.stroke();
       });
-      fiberRaf = requestAnimationFrame(animateFibers);
+      raf = requestAnimationFrame(renderLoop);
     };
     initFibers();
-    animateFibers();
+    raf = requestAnimationFrame(renderLoop);
 
     const updateScroll = () => {
       const hero = document.getElementById('home');
@@ -202,43 +228,14 @@ export default function Home() {
       loadFrame(wanted); // Ensure the frame we want is actively loading
       requestDraw();
 
-      // Sequential Information Blocks Logic
-      const blocks = 3;
-      for (let i = 0; i < blocks; i++) {
-        const copy = document.getElementById(`hero-copy-${i}`);
-        if (!copy) continue;
-        
-        const start = i / blocks;
-        const end = (i + 1) / blocks;
-        const center = (start + end) / 2;
-        
-        let dist = 0;
-        if (i === 0 && progress < center) {
-          dist = 0;
-        } else if (i === blocks - 1 && progress > center) {
-          dist = 0;
-        } else {
-          dist = Math.abs(progress - center) / (0.4 / blocks); // fade range
-        }
-        
-        const opacity = Math.max(0, 1 - dist);
-        const move = (progress - center) * 150;
-        
-        copy.style.opacity = opacity;
-        copy.style.transform = `translateY(calc(-50% - ${move}px))`;
-        copy.style.pointerEvents = opacity > 0.5 ? 'auto' : 'none';
-      }
+      // Text logic is now handled in the renderLoop to sync with the smoothed frame!
     };
-    
-    // Call updateScroll once on mount to set initial text positions
-    updateScroll();
     
     window.addEventListener('scroll', updateScroll, { passive: true });
     updateScroll();
 
     return () => {
       cancelAnimationFrame(raf);
-      cancelAnimationFrame(fiberRaf);
       window.removeEventListener('resize', resize);
       window.removeEventListener('scroll', updateScroll);
     };
@@ -322,14 +319,25 @@ export default function Home() {
         input:focus, textarea:focus { border-color:#6de5ff!important; outline:none; }
         input::placeholder, textarea::placeholder { color:rgba(159,176,200,.55); }
         @keyframes scrollBounce { 0%,100%{transform:translateX(-50%) translateY(0)} 50%{transform:translateX(-50%) translateY(8px)} }
+        
+        /* Mobile Responsive Fixes */
+        @media (max-width: 900px) {
+          .snap, .snap-scroll { height: auto !important; min-height: 100vh !important; overflow: visible !important; padding-top: 100px !important; padding-bottom: 60px !important; display: block !important; }
+          .mobile-grid { display: flex !important; flex-direction: column !important; gap: 40px !important; }
+          .mobile-grid-cols { grid-template-columns: 1fr !important; gap: 20px !important; }
+          .mobile-hide { display: none !important; }
+          .mobile-nav { padding: 0 20px !important; }
+          .mobile-hero-copy { left: 20px !important; right: 20px !important; transform: translateY(-30%) !important; }
+          .mobile-footer { flex-direction: column !important; align-items: flex-start !important; gap: 20px !important; position: static !important; }
+        }
       `}</style>
 
       {/* â”€â”€ NAVBAR â”€â”€ */}
-      <header style={{ position:'fixed', top:0, left:0, right:0, zIndex:200, padding:'0 40px', height:70, display:'flex', alignItems:'center', gap:32, background: scrolled ? 'rgba(3,15,38,.92)' : 'transparent', backdropFilter: scrolled ? 'blur(24px)' : 'none', borderBottom: scrolled ? '1px solid rgba(186,221,255,.1)' : 'none', transition:'all .5s cubic-bezier(.22,1,.36,1)' }}>
+      <header className="mobile-nav" style={{ position:'fixed', top:0, left:0, right:0, zIndex:200, padding:'0 40px', height:70, display:'flex', alignItems:'center', gap:32, background: scrolled ? 'rgba(3,15,38,.92)' : 'transparent', backdropFilter: scrolled ? 'blur(24px)' : 'none', borderBottom: scrolled ? '1px solid rgba(186,221,255,.1)' : 'none', transition:'all .5s cubic-bezier(.22,1,.36,1)', justifyContent: 'space-between' }}>
         <button onClick={() => snap('home')} style={{ background:'none',border:0,cursor:'pointer',padding:0,flexShrink:0 }}>
           <Image src="/logo.png" alt="Sheikh Online" width={105} height={42} style={{ objectFit:'contain' }} />
         </button>
-        <nav style={{ display:'flex', gap:28, flex:1, justifyContent:'center' }}>
+        <nav className="mobile-hide" style={{ display:'flex', gap:28, flex:1, justifyContent:'center' }}>
           {NAV_LABELS.map((label,i) => (
             <button key={label} onClick={() => snap(SECTIONS[i])} style={{ background:'none', border:'none', cursor:'pointer', fontSize:10, fontWeight:800, letterSpacing:'.12em', textTransform:'uppercase', color: active===i ? '#6de5ff' : 'rgba(255,255,255,.55)', transition:'color .3s', padding:'6px 0', borderBottom: active===i ? '1px solid #6de5ff' : '1px solid transparent' }}>{label}</button>
           ))}
@@ -338,7 +346,7 @@ export default function Home() {
       </header>
 
       {/* â”€â”€ RIGHT DOT NAV â”€â”€ */}
-      <div style={{ position:'fixed', right:26, top:'50%', transform:'translateY(-50%)', zIndex:200, display:'flex', flexDirection:'column', gap:10, alignItems:'center' }}>
+      <div className="mobile-hide" style={{ position:'fixed', right:26, top:'50%', transform:'translateY(-50%)', zIndex:200, display:'flex', flexDirection:'column', gap:10, alignItems:'center' }}>
         {SECTIONS.map((id,i) => (
           <div key={id} className="nav-dot" onClick={() => snap(id)} title={NAV_LABELS[i]}
             style={{ width: active===i ? 10 : 6, height: active===i ? 10 : 6, borderRadius:'50%', background: active===i ? '#6de5ff' : 'rgba(255,255,255,.3)', boxShadow: active===i ? '0 0 12px #6de5ff' : 'none' }} />
@@ -352,7 +360,7 @@ export default function Home() {
           <canvas id="fiberCanvas" style={{ position:'absolute', inset:0, width:'100%', height:'100%', pointerEvents:'none', zIndex: 1 }} />
           <div style={{ position:'absolute', inset:0, background:'linear-gradient(90deg,rgba(3,15,38,.9) 0%,rgba(3,15,38,.3) 45%,rgba(3,15,38,.1) 100%), linear-gradient(0deg,rgba(3,15,38,.8) 0%,transparent 30%)', zIndex: 1 }} />
           
-          <div id="hero-copy-0" style={{ position:'absolute', left:'8vw', top:'50%', transform:'translateY(-50%)', maxWidth:640, zIndex:2, opacity: 1, willChange: 'opacity, transform' }}>
+          <div id="hero-copy-0" className="mobile-hero-copy" style={{ position:'absolute', left:'8vw', top:'50%', transform:'translateY(-50%)', maxWidth:640, zIndex:2, opacity: 1, willChange: 'opacity, transform' }}>
             <p style={{ fontSize:10, color:'#6de5ff', letterSpacing:'.22em', fontWeight:800, margin:'0 0 18px', textTransform:'uppercase' }}>SHEIKH ONLINE SERVICE</p>
             <h1 style={{ fontSize:'clamp(42px,5.5vw,80px)', fontWeight:800, lineHeight:1.05, margin:'0 0 22px', letterSpacing:'-.055em' }}>
               Faster internet.<br/><em style={{ fontStyle:'normal', color: '#80e7ff' }}>A smarter connection.</em>
@@ -364,7 +372,7 @@ export default function Home() {
             </div>
           </div>
 
-          <div id="hero-copy-1" style={{ position:'absolute', left:'8vw', top:'50%', transform:'translateY(0)', maxWidth:640, zIndex:2, opacity: 0, willChange: 'opacity, transform' }}>
+          <div id="hero-copy-1" className="mobile-hero-copy" style={{ position:'absolute', left:'8vw', top:'50%', transform:'translateY(0)', maxWidth:640, zIndex:2, opacity: 0, willChange: 'opacity, transform' }}>
             <p style={{ fontSize:10, color:'#6de5ff', letterSpacing:'.22em', fontWeight:800, margin:'0 0 18px', textTransform:'uppercase' }}>FIBER-OPTIC BACKBONE</p>
             <h1 style={{ fontSize:'clamp(42px,5.5vw,80px)', fontWeight:800, lineHeight:1.05, margin:'0 0 22px', letterSpacing:'-.055em' }}>
               Speed at the core.<br/><em style={{ fontStyle:'normal', color: '#80e7ff' }}>No compromises.</em>
@@ -372,7 +380,7 @@ export default function Home() {
             <p style={{ fontSize:17, color:'rgba(210,222,237,.85)', lineHeight:1.75, marginBottom:36, maxWidth:500 }}>Experience a direct and stable foundation for every connected home. Zero buffering, total reliability.</p>
           </div>
 
-          <div id="hero-copy-2" style={{ position:'absolute', left:'8vw', top:'50%', transform:'translateY(0)', maxWidth:640, zIndex:2, opacity: 0, willChange: 'opacity, transform' }}>
+          <div id="hero-copy-2" className="mobile-hero-copy" style={{ position:'absolute', left:'8vw', top:'50%', transform:'translateY(0)', maxWidth:640, zIndex:2, opacity: 0, willChange: 'opacity, transform' }}>
             <p style={{ fontSize:10, color:'#6de5ff', letterSpacing:'.22em', fontWeight:800, margin:'0 0 18px', textTransform:'uppercase' }}>UNMATCHED RELIABILITY</p>
             <h1 style={{ fontSize:'clamp(42px,5.5vw,80px)', fontWeight:800, lineHeight:1.05, margin:'0 0 22px', letterSpacing:'-.055em' }}>
               Always on.<br/><em style={{ fontStyle:'normal', color: '#80e7ff' }}>Ready for your digital life.</em>
@@ -389,11 +397,11 @@ export default function Home() {
 
       {/* â• â• â• â• â• â• â• â• â• â• â• â• â• â•  SECTION: FEATURES â• â• â• â• â• â• â• â• â• â• â• â• â• â•  */}
       <section id="features" className="snap" style={{ background:'radial-gradient(ellipse at 70% 50%,#0a2141 0%,#030f26 65%)', padding:'0 8vw' }}>
-        <div style={{ maxWidth:1200, width:'100%', margin:'0 auto', display:'grid', gridTemplateColumns:'1fr 1fr', gap:80, alignItems:'center' }}>
+        <div className="mobile-grid" style={{ maxWidth:1200, width:'100%', margin:'0 auto', display:'grid', gridTemplateColumns:'1fr 1fr', gap:80, alignItems:'center' }}>
           <div>
             <p style={{ ...fadeLeft('features', 0), fontSize:10, color:'#6de5ff', letterSpacing:'.22em', fontWeight:800, margin:'0 0 18px', textTransform:'uppercase' }}>Why Choose Us</p>
             <h2 style={{ ...fadeLeft('features', 0.1), fontSize:'clamp(36px,4.5vw,60px)', fontWeight:800, lineHeight:1.07, margin:'0 0 36px', letterSpacing:'-.05em' }}>Built for the<br/><em style={{ fontStyle:'normal', color:'#6de5ff' }}>modern internet.</em></h2>
-            <div style={{ ...fadeLeft('features', 0.2), display:'grid', gridTemplateColumns:'1fr 1fr', gap:10 }}>
+            <div className="mobile-grid-cols" style={{ ...fadeLeft('features', 0.2), display:'grid', gridTemplateColumns:'1fr 1fr', gap:10 }}>
               {['Local CDN','BDIX Direct','HD Streaming','Fiber Optic','Low Latency','Multi Upstream','Public IP','24/7 Support'].map(f => (
                 <div key={f} style={{ display:'flex', alignItems:'center', gap:10, padding:'10px 14px', background:'rgba(255,255,255,.05)', borderRadius:40, border:'1px solid rgba(186,221,255,.08)' }}>
                   <span style={{ color:'#6effc6', fontSize:13, flexShrink:0 }}>✓</span>
@@ -402,7 +410,7 @@ export default function Home() {
               ))}
             </div>
           </div>
-          <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:14 }}>
+          <div className="mobile-grid-cols" style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:14 }}>
             {[{s:50,p:700},{s:100,p:1100},{s:150,p:1500},{s:200,p:2000}].map((x, i) => (
               <div key={x.s} style={{ ...scaleIn('features', 0.1 + (i * 0.1)), background:'rgba(10,25,56,.8)', border:'1px solid rgba(109,229,255,.15)', borderRadius:14, padding:'22px 18px', textAlign:'center' }}>
                 <div style={{ fontSize:36, fontWeight:800, color:'#FFDD72', letterSpacing:'-.05em' }}>{x.s}<span style={{ fontSize:12, color:'#9fb0c8', fontWeight:400 }}> Mbps</span></div>
@@ -413,7 +421,7 @@ export default function Home() {
         </div>
       </section>
 
-      {/* â•â•â•â•â•â•â•â•â•â•â•â•â•â• SECTION: SELF-CARE â•â•â•â•â•â•â•â•â•â•â•â•â•â• */}
+      {/* â• â• â• â• â• â• â• â• â• â• â• â• â• â•  SECTION: SELF-CARE â• â• â• â• â• â• â• â• â• â• â• â• â• â•  */}
       <section id="selfcare" className="snap" style={{ background:'radial-gradient(ellipse at 30% 70%,#064e3b 0%,#030f26 65%)', padding:'0 5vw' }}>
         <div style={{ textAlign:'center', maxWidth:750, margin: '0 auto' }}>
           <div style={{ ...fadeUp('selfcare', 0), fontSize:68, marginBottom:28, filter:'drop-shadow(0 0 30px rgba(110,255,198,.3))' }}>⚙️</div>
@@ -426,9 +434,9 @@ export default function Home() {
         </div>
       </section>
 
-      {/* â•â•â•â•â•â•â•â•â•â•â•â•â•â• SECTION: ABOUT â•â•â•â•â•â•â•â•â•â•â•â•â•â• */}
+      {/* â• â• â• â• â• â• â• â• â• â• â• â• â• â•  SECTION: ABOUT â• â• â• â• â• â• â• â• â• â• â• â• â• â•  */}
       <section id="about" className="snap" style={{ background:'radial-gradient(ellipse at 20% 60%,#081a3b 0%,#030f26 70%)',padding:'0 8vw' }}>
-        <div style={{ maxWidth:1200,width:'100%',margin:'0 auto',display:'grid',gridTemplateColumns:'1.1fr .9fr',gap:80,alignItems:'center',position:'relative' }}>
+        <div className="mobile-grid" style={{ maxWidth:1200,width:'100%',margin:'0 auto',display:'grid',gridTemplateColumns:'1.1fr .9fr',gap:80,alignItems:'center',position:'relative' }}>
           <div>
             <p style={{ ...fadeLeft('about',0),fontSize:10,color:'#6de5ff',letterSpacing:'.22em',fontWeight:800,margin:'0 0 18px',textTransform:'uppercase',display:'block' }}>Our Story</p>
             <h2 style={{ ...fadeLeft('about',.1),fontSize:'clamp(38px,4.8vw,66px)',fontWeight:800,lineHeight:1.05,margin:'0 0 24px',letterSpacing:'-.055em',display:'block' }}>
@@ -437,7 +445,7 @@ export default function Home() {
             <p style={{ ...fadeLeft('about',.2),fontSize:16,color:'rgba(210,222,237,.78)',lineHeight:1.8,marginBottom:36,maxWidth:520,display:'block' }}>
               Since our inception, Sheikh Online Service has been dedicated to providing high-speed, reliable, and affordable internet to homes and businesses across the region.
             </p>
-            <div style={{ ...fadeLeft('about',.3),display:'grid',gridTemplateColumns:'repeat(3,1fr)',border:'1px solid rgba(186,221,255,.12)',borderRadius:16,overflow:'hidden' }}>
+            <div className="mobile-grid-cols" style={{ ...fadeLeft('about',.3),display:'grid',gridTemplateColumns:'repeat(3,1fr)',border:'1px solid rgba(186,221,255,.12)',borderRadius:16,overflow:'hidden' }}>
               {[{v:'10K+',l:'Active Users'},{v:'50+',l:'Areas Covered'},{v:'99.9%',l:'Uptime'}].map((s,i) => (
                 <div key={s.l} style={{ padding:'26px 18px',borderRight:i<2?'1px solid rgba(186,221,255,.12)':'none',textAlign:'center' }}>
                   <div style={{ fontSize:34,fontWeight:800,color:'#6de5ff',letterSpacing:'-.05em' }}>{s.v}</div>
@@ -461,7 +469,7 @@ export default function Home() {
         </div>
       </section>
 
-      {/* â•â•â•â•â•â•â•â•â•â•â•â•â•â• SECTION: PRICING â•â•â•â•â•â•â•â•â•â•â•â•â•â• */}
+      {/* â• â• â• â• â• â• â• â• â• â• â• â• â• â•  SECTION: PRICING â• â• â• â• â• â• â• â• â• â• â• â• â• â•  */}
       <section id="pricing" className="snap-scroll" style={{ background:'#030f26',padding:'90px 6vw 60px' }}>
         <div style={{ maxWidth:1280,margin:'0 auto' }}>
           <div style={{ ...fadeUp('pricing',0),textAlign:'center',marginBottom:44 }}>
@@ -476,7 +484,7 @@ export default function Home() {
               ))}
             </div>
           </div>
-          <div style={{ display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:18 }}>
+          <div className="mobile-grid-cols" style={{ display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:18 }}>
             {(pricingTab==='home' ? HOME_PLANS : BIZ_PLANS).map((p,i) => (
               <div key={p.name} className="plan-card" style={{ ...scaleIn('pricing',i*.06),position:'relative',background:p.popular?'linear-gradient(145deg,#0c2f5e,#071528)':'rgba(10,25,56,.8)',border:`1px solid ${p.popular?'#6de5ff':'rgba(186,221,255,.1)'}`,borderRadius:18,padding:26,backdropFilter:'blur(10px)',display:'block' }}>
                 {p.popular && <div style={{ position:'absolute',top:-13,left:'50%',transform:'translateX(-50%)',background:'linear-gradient(90deg,#6de5ff,#a78bfa)',color:'#030f26',fontSize:9,fontWeight:800,padding:'5px 16px',borderRadius:20,letterSpacing:'.1em',whiteSpace:'nowrap' }}>MOST POPULAR</div>}
@@ -493,7 +501,7 @@ export default function Home() {
         </div>
       </section>
 
-      {/* â•â•â•â•â•â•â•â•â•â•â•â•â•â• SECTION: COVERAGE â•â•â•â•â•â•â•â•â•â•â•â•â•â• */}
+      {/* â• â• â• â• â• â• â• â• â• â• â• â• â• â•  SECTION: COVERAGE â• â• â• â• â• â• â• â• â• â• â• â• â• â•  */}
       <section id="coverage" className="snap" style={{ background:'radial-gradient(ellipse at 50% 100%,#071f45 0%,#030f26 65%)',padding:'0 8vw' }}>
         <div style={{ maxWidth:1200,width:'100%',margin:'0 auto',position:'relative' }}>
           <div style={{ textAlign:'center',marginBottom:48 }}>
@@ -501,7 +509,7 @@ export default function Home() {
             <h2 style={{ ...fadeUp('coverage',.1),fontSize:'clamp(38px,4.8vw,62px)',fontWeight:800,lineHeight:1.07,margin:'0 0 14px',letterSpacing:'-.055em',display:'block' }}>Check our <em style={{ fontStyle:'normal',color:'#6de5ff' }}>coverage area.</em></h2>
             <p style={{ ...fadeUp('coverage',.2),fontSize:16,color:'#9fb0c8',maxWidth:540,margin:'0 auto',display:'block' }}>Expanding our optical fiber network. See if we are available in your area.</p>
           </div>
-          <div style={{ display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:16,marginBottom:32 }}>
+          <div className="mobile-grid-cols" style={{ display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:16,marginBottom:32 }}>
             {COVERAGE.map((area,i) => (
               <div key={area.zone} style={{ ...scaleIn('coverage',i*.08),background:'rgba(10,25,56,.75)',border:'1px solid rgba(186,221,255,.1)',borderRadius:16,padding:'22px 18px',backdropFilter:'blur(10px)',display:'block' }}>
                 <h3 style={{ fontSize:14,fontWeight:800,marginBottom:14,color:'#6de5ff' }}>{area.zone}</h3>
@@ -511,7 +519,7 @@ export default function Home() {
               </div>
             ))}
           </div>
-          <div style={{ ...fadeUp('coverage',.3),background:'linear-gradient(135deg,rgba(13,53,96,.9),rgba(7,21,40,.9))',borderRadius:16,padding:'32px 36px',display:'flex',alignItems:'center',justifyContent:'space-between',border:'1px solid rgba(186,221,255,.15)',backdropFilter:'blur(10px)' }}>
+          <div className="mobile-grid" style={{ ...fadeUp('coverage',.3),background:'linear-gradient(135deg,rgba(13,53,96,.9),rgba(7,21,40,.9))',borderRadius:16,padding:'32px 36px',display:'flex',alignItems:'center',justifyContent:'space-between',border:'1px solid rgba(186,221,255,.15)',backdropFilter:'blur(10px)' }}>
             <div>
               <h3 style={{ fontSize:20,fontWeight:800,margin:'0 0 6px' }}>Don&apos;t see your area?</h3>
               <p style={{ fontSize:14,color:'#9fb0c8',margin:0 }}>We prioritize expansion based on user requests.</p>
@@ -521,7 +529,7 @@ export default function Home() {
         </div>
       </section>
 
-      {/* â•â•â•â•â•â•â•â•â•â•â•â•â•â• SECTION: OFFERS â•â•â•â•â•â•â•â•â•â•â•â•â•â• */}
+      {/* â• â• â• â• â• â• â• â• â• â• â• â• â• â•  SECTION: OFFERS â• â• â• â• â• â• â• â• â• â• â• â• â• â•  */}
       <section id="offers" className="snap" style={{ background:'#030f26',padding:'0 8vw' }}>
         <div style={{ position:'absolute',inset:0,backgroundImage:'radial-gradient(ellipse at 80% 30%,rgba(124,58,237,.07) 0%,transparent 50%)' }} />
         <div style={{ maxWidth:1200,width:'100%',margin:'0 auto',position:'relative' }}>
@@ -530,7 +538,7 @@ export default function Home() {
             <h2 style={{ ...fadeUp('offers',.1),fontSize:'clamp(38px,4.8vw,62px)',fontWeight:800,lineHeight:1.07,margin:'0 0 14px',letterSpacing:'-.055em',display:'block' }}>Special <em style={{ fontStyle:'normal',color:'#a78bfa' }}>Offers.</em></h2>
             <p style={{ ...fadeUp('offers',.2),fontSize:16,color:'#9fb0c8',maxWidth:540,margin:'0 auto',display:'block' }}>Save more with our current promotions and exclusive deals.</p>
           </div>
-          <div style={{ display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:22 }}>
+          <div className="mobile-grid-cols" style={{ display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:22 }}>
             {OFFERS.map((o,i) => (
               <div key={o.title} className="offer-card" style={{ ...fadeUp('offers',i*.1),background:o.bg,borderRadius:20,padding:'34px 28px',position:'relative',overflow:'hidden',border:'1px solid rgba(255,255,255,.08)',display:'block' }}>
                 <div style={{ position:'absolute',top:-28,right:-28,fontSize:120,opacity:.06,lineHeight:1 }}>🎁</div>
@@ -547,9 +555,9 @@ export default function Home() {
         </div>
       </section>
 
-      {/* â•â•â•â•â•â•â•â•â•â•â•â•â•â• SECTION: CONTACT â•â•â•â•â•â•â•â•â•â•â•â•â•â• */}
+      {/* â• â• â• â• â• â• â• â• â• â• â• â• â• â•  SECTION: CONTACT â• â• â• â• â• â• â• â• â• â• â• â• â• â•  */}
       <section id="contact" className="snap" style={{ background:'radial-gradient(ellipse at 50% 0%,#08254d 0%,#030f26 60%)',padding:'0 8vw' }}>
-        <div style={{ maxWidth:1200,width:'100%',margin:'0 auto',display:'grid',gridTemplateColumns:'1.1fr .9fr',gap:80,alignItems:'center' }}>
+        <div className="mobile-grid" style={{ maxWidth:1200,width:'100%',margin:'0 auto',display:'grid',gridTemplateColumns:'1.1fr .9fr',gap:80,alignItems:'center' }}>
           <div>
             <p style={{ ...fadeLeft('contact',0),fontSize:10,color:'#6de5ff',letterSpacing:'.22em',fontWeight:800,margin:'0 0 18px',textTransform:'uppercase',display:'block' }}>Get In Touch</p>
             <h2 style={{ ...fadeLeft('contact',.1),fontSize:'clamp(38px,4.8vw,62px)',fontWeight:800,lineHeight:1.05,margin:'0 0 20px',letterSpacing:'-.055em',display:'block' }}>We&apos;re here<br/><em style={{ fontStyle:'normal',color:'#6de5ff' }}>to help.</em></h2>
@@ -579,9 +587,9 @@ export default function Home() {
         </div>
 
         {/* Footer bar */}
-        <div style={{ position:'absolute',bottom:0,left:0,right:0,padding:'18px 8vw',borderTop:'1px solid rgba(186,221,255,.08)',display:'flex',justifyContent:'space-between',alignItems:'center' }}>
+        <div className="mobile-footer" style={{ position:'absolute',bottom:0,left:0,right:0,padding:'18px 8vw',borderTop:'1px solid rgba(186,221,255,.08)',display:'flex',justifyContent:'space-between',alignItems:'center' }}>
           <p style={{ margin:0,fontSize:12,color:'rgba(159,176,200,.55)' }}>© {new Date().getFullYear()} Sheikh Online Service. All rights reserved.</p>
-          <div style={{ display:'flex',gap:18 }}>
+          <div className="mobile-grid-cols" style={{ display:'flex',gap:18 }}>
             {NAV_LABELS.map((l,i) => <button key={l} onClick={() => snap(SECTIONS[i])} style={{ background:'none',border:0,cursor:'pointer',color:'rgba(159,176,200,.55)',fontSize:12,padding:0,transition:'color .2s' }} onMouseEnter={e => e.target.style.color='#6de5ff'} onMouseLeave={e => e.target.style.color='rgba(159,176,200,.55)'}>{l}</button>)}
           </div>
         </div>
